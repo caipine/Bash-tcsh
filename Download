@@ -1,0 +1,130 @@
+download:
+
+############################
+
+#!/bin/csh -f
+
+mkdir fastqs
+
+sed 1d GSE58377.txt | awk '{print $2}' > SRR.name.txt
+
+foreach i ("`cat SRR.name.txt`")
+
+set ii =  `echo $i | cut -c1-6`
+
+/home/exx/.aspera/connect/bin/ascp -i \
+/home/exx/.aspera/connect/etc/asperaweb_id_dsa.openssh -k 1 -QT -l 200m \
+ anonftp@ftp-trace.ncbi.nlm.nih.gov:/sra/sra-instant/reads/ByRun/sra/SRR/$ii/$i/$i.sra fastqs
+
+end
+##############################33
+	
+  save following as GSE58377.txt 
+  
+BCC1-control SRR1374314	
+BCC1-tumor SRR1374315
+BCC2-tumor SRR1374316
+BCC2_3-control SRR1374317
+
+
+###########################
+
+find *sra| parallel -j 4 fastq-dump --split-3 {}
+find *fastq | parallel -j 8 bgzip {}
+
+save  following as samples.tsv
+
+sample
+BCC1-control
+BCC1-tumor
+BCC2-tumor
+BCC2_3-control
+
+save  following as units.tsv
+sample	unit	platform	fq1	fq2
+BCC1-control   lane  ILLUMINA  download_fastq/fastqs/SRR1374314_1.fastq.gz download_fastq/fastqs/SRR1374314_2.fastq.gz 
+BCC1-tumor     lane  ILLUMINA  download_fastq/fastqs/SRR1374315_1.fastq.gz download_fastq/fastqs/SRR1374315_2.fastq.gz
+BCC2-tumor     lane  ILLUMINA  download_fastq/fastqs/SRR1374316_1.fastq.gz download_fastq/fastqs/SRR1374316_2.fastq.gz
+BCC2_3-control lane  ILLUMINA  download_fastq/fastqs/SRR1374317_1.fastq.gz download_fastq/fastqs/SRR1374317_2.fastq.gz
+
+
+https://gatkforums.broadinstitute.org/gatk/discussion/1215/how-can-i-access-the-gsa-public-ftp-server
+
+reference genome
+wget ftp://ftp.ncbi.nih.gov/snp/organisms/human_9606/VCF/All_20180418.vcf.gz
+gatk IndexFeatureFile -F All_20180418.vcf
+
+wget ftp://ftp.ncbi.nlm.nih.gov/refseq/H_sapiens/annotation/GRCh38_latest/refseq_identifiers/GRCh38_latest_genomic.fna.gz
+mv GRCh38_latest_genomic.fna.gz GRCh38_latest_genomic.fasta.gz
+
+java -jar /root/miniconda3/pkgs/picard-2.18.16-0/share/picard-2.18.16-0/picard.jar CreateSequenceDictionary R= GRCh38_latest_genomic.fasta O= GRCh38_latest_genomic.dict
+samtools faidx GRCh38_latest_genomic.fasta
+bwa index GRCh38_latest_genomic.fasta
+
+
+
+java -Dsamjdk.use_async_io_read_samtools=false -Dsamjdk.use_async_io_write_samtools=true \ 
+-Dsamjdk.use_async_io_write_tribble=false -Dsamjdk.compression_level=2 -jar \
+/root/miniconda3/share/gatk4-4.0.11.0-0/gatk-package-4.0.11.0-local.jar BaseRecalibrator \
+-R /data/exx/DNAseq/dna-seq-gatk-variant-calling/vcf/GRCh38_latest_genomic.fasta \
+-I dedup/BCC1-control-lane1.bam -O /tmp/tmp7sdq7f_8/recal_table.grp --known-sites \
+/data/exx/DNAseq/dna-seq-gatk-variant-calling/vcf/All_20180418.vcf
+
+
+conda install -c bioconda bwa
+conda install -c bioconda picard
+conda install -c bioconda gatk4
+
+ 
+snakemake --unlock
+snakemake --cores 16 --rerun-incomplete
+
+
+https://sites.google.com/site/wesprotocol/
+
+#########################
+TACC
+/home1/03988/qscai/.bashrc
+
+
+snakemake --cores 16 --rerun-incomplete -np > echo.log
+grep "echo" echo.log > echo2.log
+nano nano echo2.log
+sed -i 's/echo//g' echo2.log
+nano echo2.log
+
+ls  msub* > m.list
+ nano m.list
+
+
+*******************************************************
+set lines=`cat echo2.log`
+set i=1
+while ( $i <= $#lines )
+    echo $lines[$i]
+    @ i = $i + 1
+end
+
+
+setenv i=1
+foreach line ( "`cat echo2.log`" )
+cat <<EOF >msub.$i.sh
+#PBS -N $i
+#PBS -l nodes=1:ppn=1,walltime=12:00:00
+#PBS -l mem=32gb
+#PBS -M qcai1@mdanderson.org
+#PBS -m abe
+#PBS -d /scratch/neuro-onc_rsch/qcai1/DNAseq
+#PBS -o /scratch/neuro-onc_rsch/qcai1/DNAseq/log
+#PBS -e /scratch/neuro-onc_rsch/qcai1/DNAseq/log
+#PBS -V
+
+module load gatk
+$line
+EOF
+i = i + 1
+end
+*****************************************************
+
+
+https://sites.google.com/site/wesprotocol/
